@@ -8,7 +8,7 @@ def ThreeMonthReturn(closing_price, lags=63, log=False):
     return closing_price.pct_change(lags) if log == False else closing_price.apply(lambda x: np.log(x + offset)).pct_change(lags)
 
 
-def CreateSequences(data, look_back=62, horizon=62, target_name='log_return_3m'):
+def CreateSequences(data, look_back=63, horizon=63, target_name='log_return_3m'):
     """
     outputs feature sequences of length look_back
     for each day in the data, starting from the look_back'th day (62nd day e.g.)
@@ -29,7 +29,7 @@ def CreateSequences(data, look_back=62, horizon=62, target_name='log_return_3m')
         features.append(data.iloc[timestep-look_back:timestep])
         target.append(data[target_name].iloc[timestep+horizon])
     
-    return torch.tensor(np.array(features)), torch.tensor(np.array(target))
+    return torch.tensor(np.array(features)).float(), torch.tensor(np.array(target)).float()
 
 
 def SplitData(data, split_idx):
@@ -93,5 +93,3 @@ def DataFrame_to_Tensors(data, split_date, look_back=63, horizon=63):
     
     return {'train_features': train_features, 'train_targets': train_targets,
             'test_features': test_features, 'test_targets': test_targets}
-
-
