@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 
 
 def ThreeMonthReturn(closing_price, lags=63, log=False): 
@@ -11,26 +12,26 @@ def n_lag_return(price, lags=63):
     return price - price.shift(-lags)
 
 
-def CreateSequences(data, look_back=63, horizon=63, target_name='log_return_3m'):
+def CreateSequences(df, look_back=63, horizon=63, target_name='log_return_3m'):
     """
     outputs feature sequences of length look_back
-    for each day in the data, starting from the look_back'th day (62nd day e.g.)
+    for each day in the df, starting from the look_back'th day (62nd day e.g.)
     
     target is the return at the horizon'th day (62 days later e.g.)
     """
     
     # check if any column has non-numerical values and if there are, 
     # print a warning but continue with dropping the offending columns
-    if data.applymap(np.isreal).all().all() == False:
+    if df.applymap(np.isreal).all().all() == False:
         print("WARNING: Non-numerical values detected in dataframe. Dropping columns with non-numerical values.")
-        data = data.select_dtypes(exclude=['object'])
+        df = df.select_dtypes(exclude=['object'])
     
     features = []
     target = []
 
-    for timestep in range(look_back, len(data) - horizon):
-        features.append(data.iloc[timestep-look_back:timestep])
-        target.append(data[target_name].iloc[timestep+horizon])
+    for timestep in range(look_back, len(df) - horizon):
+        features.append(df.iloc[timestep-look_back:timestep])
+        target.append(df[target_name].iloc[timestep+horizon])
     
     return torch.tensor(np.array(features)).float(), torch.tensor(np.array(target)).float()
 
@@ -54,12 +55,12 @@ def SplitData(data, split_idx):
 
 def FindNearestDateIndex(date, df):
     """
-    data: date-str of YYYY-MM-DD
+    data: date-str of YYYY-MM-DD or datetime object
     df: dataframe with datetime index
 
     returns: index of the nearest date in the future
     """
-    date = pd.Timestamp(date)
+    date = pd.Timestamp(date) if type(date) == str else date
 
     # If the date exists in the index, return its index
     if date in df.index:
@@ -74,9 +75,9 @@ def FindNearestDateIndex(date, df):
     raise ValueError("No available date found in the future.")
 
 
-def DataFrame_to_Tensors(data, split_date, look_back=63, horizon=63):
+def DF2Tensors(df, split_date, look_back=63, horizon=63):
     """
-    data: dataframe of features and targets
+    df: dataframe of features and targets
     look_back: length of each sequence
     horizon: how far in the future to predict
     
@@ -87,12 +88,62 @@ def DataFrame_to_Tensors(data, split_date, look_back=63, horizon=63):
     # we subtract the look_back since that portion of data dissapears
     # when we create sequences of look_back length
 
-    split_index = FindNearestDateIndex(split_date, data) - look_back
+    split_index = FindNearestDateIndex(split_date, df) - look_back
 
-    features, target = CreateSequences(data, look_back=look_back, horizon=horizon)
+    features, target = CreateSequences(df, look_back=look_back, horizon=horizon)
     
     train_features, test_features = SplitData(features, split_idx=split_index)
     train_targets, test_targets = SplitData(target, split_idx=split_index)
     
     return {'train_features': train_features, 'train_targets': train_targets,
             'test_features': test_features, 'test_targets': test_targets}
+
+
+def ScaleData(df, split_date, scaler):
+    """
+    df: dataframe of features and targets
+    split_date: datetime object to split the data at
+    scaler: sklearn scaler object
+
+    return: scaled concat dataframe and fitted scaler object
+    """
+    
+    ticker_rows_train = df.loc[df.index < split_date].copy()
+    ticker_rows_test = df.loc[df.index >= split_date].copy()
+
+    numerical_columns = ticker_rows_train.drop(columns=['Ticker', 'Sector']).columns
+
+    ticker_rows_train[numerical_columns] = scaler.fit_transform(ticker_rows_train[numerical_columns])
+    ticker_rows_test[numerical_columns] = scaler.transform(ticker_rows_test[numerical_columns])
+
+    # concatenate the scaled rows horizontally
+    scaled_stock_data = pd.concat([ticker_rows_train, ticker_rows_test], axis=0)
+
+    return scaled_stock_data, scaler
+
+
+# Dataset sctructure
+class TimeSeriesDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+def FetchDataLoader(ticker_sequences_dict, batch_size=16, num_workers=0):
+    # Initialize the datasets
+    train_dataset = TimeSeriesDataset(ticker_sequences_dict['train_features'], ticker_sequences_dict['train_targets'])
+    # val_dataset = TimeSeriesDataset(ticker_sequences_dict['val_features'], ticker_sequences_dict['val_targets'])
+    test_dataset = TimeSeriesDataset(ticker_sequences_dict['test_features'], ticker_sequences_dict['test_targets'])
+
+    # Initialize the dataloaders
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+    # val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+
+    return train_dataloader, test_dataloader
