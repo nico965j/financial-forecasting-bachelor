@@ -167,55 +167,59 @@ def init_model(input_size, hidden_layer_size, num_layers, output_size, dropout_r
     return model, criterion, optimizer, scheduler
 
 
-
-if __name__ == "__main__":
-
-    ### Initializations
-
-    # set device
-    pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # set seed
-    def assert_seed(seed=42):
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-
+def DataLoadFromPath(path):
     start_time = time.time()
     tqdm.write("Data load...")
+
     # load csv
-    raw_stock_data = pd.read_csv('data/SP500_stock_prices_log_clean_3monthreturn.csv', index_col=0, parse_dates=True)
+    raw_stock_data = pd.read_csv(path, index_col=0, parse_dates=True)
     stock_tickers = pd.Series(raw_stock_data.Ticker.unique())
 
     # change doubles/64 bit floats into 32bit floats
     float_cols = list(raw_stock_data.select_dtypes(include=['float64', 'int64']))
     raw_stock_data[float_cols] = raw_stock_data[float_cols].astype('float32')
+
     end_time = time.time()
     tqdm.write(f"Data load complete. Time elapsed: {end_time - start_time:.2f} seconds.")
 
+    return raw_stock_data, stock_tickers
 
-    input_size = 6
-    hidden_layer_size = 32
-    num_layers = 1
-    output_size = 1
-    dropout_rate = 0.4
-    lr = 0.001
-    patience = 3
+def AssertSeed(seed):
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
 
+def OpenConfig(path):
+        with open(path, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+
+if __name__ == "__main__":
+    import yaml
+    
+    config = OpenConfig('configs/config_base.yaml')
+    pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
+
+    raw_stock_data, stock_tickers = DataLoadFromPath(config['data_path'])
+
+    input_size = config['input_size']
+    hidden_layer_size = config['hidden_layer_size']
+    num_layers = config['num_layers']
+    output_size = config['output_size']
+    dropout_rate = config['dropout_rate']
+    lr = config['lr']
+    patience = config['patience']
     # Early stopping details
-    n_epochs_stop = 5
+    n_epochs_stop = config['n_epochs_stop']
     min_val_loss = np.Inf
     epochs_no_improve = 0
-
     # Epochs
-    num_epochs = 100
+    num_epochs = config['num_epochs']
 
-    scalers = {} # will have structure: scalers[fold_num][ticker]
-    # losses = dict() #or we read in the relevant csv/json files created
+    scalers = {}
 
     # init variables for use in the loop
-    fold_dates = [pd.to_datetime(str) for str in ["2019-01-01", "2019-04-01"]]
+    fold_dates = [pd.to_datetime(date) for date in config['date_splits']]
     folds = range(len(fold_dates))
 
     start_time = time.time()
@@ -231,29 +235,32 @@ if __name__ == "__main__":
 
         for ticker in stock_tickers:
             ticker_time = time.time()
-
             tqdm.write(f"Training model for {ticker} on fold {fold}.")
+
             # Scaling all data for the fold split. Turn them into tensors
             ticker_data = raw_stock_data[raw_stock_data.Ticker == ticker]
-            scaled_ticker_data, ticker_scaler = ScaleData(df=ticker_data, split_date=split_date, scaler=MinMaxScaler())
+            scaled_ticker_data, ticker_scaler = ScaleData(df=ticker_data, ticker=ticker, split_date=split_date, scaler=MinMaxScaler())
             fold_scalers[ticker] = ticker_scaler
             
             # sequencial dict of tensors with train- and test-features and -targets
-            sequencial_tensors = DF2Tensors(scaled_ticker_data.drop(columns=['Ticker', 'Sector']), split_date=split_date)
+            sequencial_tensors_dict = DF2Tensors(scaled_ticker_data.drop(columns=['Ticker', 'Sector']), split_date=split_date)
             
-            train_loader, test_loader = FetchDataLoader(sequencial_tensors, batch_size=16, num_workers=0)
+            train_loader, test_loader = FetchDataLoader(sequencial_tensors_dict, 
+                                                        batch_size=config['train']['batch_size'], 
+                                                        num_workers=0)
 
-            model, criterion, optimizer, scheduler = init_model(input_size, 
-                                                                hidden_layer_size, 
-                                                                num_layers, 
-                                                                output_size, 
-                                                                dropout_rate, 
-                                                                lr, 
-                                                                patience, 
-                                                                pytorch_device, 
+            model, criterion, optimizer, scheduler = init_model(input_size=config['train']['input_size'], 
+                                                                hidden_layer_size=config['train']['hidden_layer_size'], 
+                                                                num_layers=config['train']['num_layers'], 
+                                                                output_size=config['train']['output_size'], 
+                                                                dropout_rate=config['train']['dropout_rate'], 
+                                                                lr=config['optim']['lr'],
+                                                                optim_type=config['optim']['type'], 
+                                                                patience=config['train']['patience'], 
+                                                                pytorch_device=pytorch_device, 
                                                                 scheduler=True)
                 
-            save_dir = f'models/fold{fold}/{ticker}'
+            save_dir = f"{config['data']['exp_dir_out']}/fold{fold}/{ticker}"
             
             # train tha model
             epoch_train_losses, epoch_val_losses, min_val_loss = train_model(model=model,
@@ -263,7 +270,7 @@ if __name__ == "__main__":
                                                                             optimizer=optimizer, 
                                                                             scheduler=scheduler,
                                                                             pytorch_device=pytorch_device,
-                                                                            num_epochs=num_epochs,
+                                                                            num_epochs=config['train']['num_epochs'],
                                                                             model_save=True,
                                                                             save_dir=save_dir, 
                                                                             verbose=True, 

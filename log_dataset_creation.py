@@ -9,7 +9,7 @@ raw_stock_data = pd.read_csv('data/SP500_stock_prices.csv', index_col=0, parse_d
 print(f'Dataset loaded')
 
 # some helper variables
-stock_tickers = pd.Series(raw_stock_data.Ticker.unique())
+stock_tickers = pd.Series(raw_stock_data.Ticker.unique()).rename('Ticker')
 period = raw_stock_data.index.unique()
 period_length = period.__len__()
 
@@ -55,3 +55,9 @@ raw_stock_data.dtypes
 path = 'data/SP500_stock_prices_log_clean_3monthreturn.csv'
 raw_stock_data.to_csv(path)
 print(f'Dataframe saved to {path}.')
+
+### save the stock tickers to csv
+stock_tickers = stock_tickers[~stock_tickers.isin(tickers_to_remove)]
+path = 'data/SP500_tickers_clean.csv'
+stock_tickers.to_csv(path)
+print(f'Suitable tickers saved to {path}.')
