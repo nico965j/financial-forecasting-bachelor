@@ -1,6 +1,10 @@
 venv/
 .venv
-models/
+experiments/
 *.pyc
 settings.json
 .vscode
+outputs/
+errors/
+*.out
+*.err
