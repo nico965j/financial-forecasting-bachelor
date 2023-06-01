@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader, Dataset
 
 from tqdm import tqdm
 
@@ -158,8 +157,6 @@ def init_model(input_size, hidden_layer_size, num_layers, output_size, dropout_r
     # init model
     model = LSTM(input_size, hidden_layer_size, num_layers, output_size, dropout_rate)
     model.to(pytorch_device)
-    # tqdm.write(model)
-
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=patience) if scheduler else None
@@ -219,7 +216,7 @@ if __name__ == "__main__":
     scalers = {}
 
     # init variables for use in the loop
-    fold_dates = [pd.to_datetime(date) for date in config['date_splits']]
+    fold_dates = config['date_splits'] # yaml detects datetime
     folds = range(len(fold_dates))
 
     start_time = time.time()
@@ -260,7 +257,7 @@ if __name__ == "__main__":
                                                                 pytorch_device=pytorch_device, 
                                                                 scheduler=True)
                 
-            save_dir = f"{config['data']['exp_dir_out']}/fold{fold}/{ticker}"
+            save_dir = f"experiments/{config['data']['exp_dir_out']}/fold{fold}/{ticker}"
             
             # train tha model
             epoch_train_losses, epoch_val_losses, min_val_loss = train_model(model=model,
