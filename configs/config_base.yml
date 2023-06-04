@@ -21,5 +21,4 @@ data:
     - 2019-04-01
     - 2019-07-01
     - 2019-10-01
-  #exp_dir: "experiments"
-  exp_output_dir: "exp"
+  exp_output_dir: "exp_base"

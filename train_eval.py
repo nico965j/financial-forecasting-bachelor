@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import json
 import time
 import os
+import argparse
 
 import torch
 import torch.nn as nn
@@ -17,6 +17,10 @@ from sklearn.preprocessing import RobustScaler, MinMaxScaler
 
 from preprocessing_utils import DF2Tensors, ScaleData, FetchDataLoader
 tqdm.write("Modules loaded.")
+
+parser = argparse.ArgumentParser()
+# parser.add_argument("--exp_dir", help="Full path to save best validation model")
+parser.add_argument("--conf_path", default="conf_base.yml", help="Name of configuration file (conf___.yml)")
 
 ##### MODEL
 ## Define model architecture
@@ -194,7 +198,8 @@ def OpenConfig(path):
 if __name__ == "__main__":
     import yaml
     
-    config = OpenConfig('configs/config_base.yaml')
+    conf_path = parser.parse_args().conf_path
+    config = OpenConfig(f'configs/{conf_path}')
     pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
 
     raw_stock_data, stock_tickers = DataLoadFromPath(config['data_path'])
