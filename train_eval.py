@@ -137,7 +137,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
                 'hidden_layer_size': model.lstm.hidden_size, 
                 'num_layers': model.lstm.num_layers, 
                 'output_size': model.fc.out_features, 
-                'dropout_rate': model.lstm.dropout_rate}, 
+                'dropout_rate': model.dropout.p}, 
                 f)
 
     # helper hyperparameters
