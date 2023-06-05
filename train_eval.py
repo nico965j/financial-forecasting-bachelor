@@ -4,6 +4,7 @@ import json
 import time
 import os
 import argparse
+import yaml
 
 import torch
 import torch.nn as nn
@@ -196,13 +197,12 @@ def OpenConfig(path):
         return config
 
 if __name__ == "__main__":
-    import yaml
     
     conf_path = parser.parse_args().conf_path
     config = OpenConfig(f'configs/{conf_path}')
     pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
 
-    raw_stock_data, stock_tickers = DataLoadFromPath(config['data_path'])
+    raw_stock_data, stock_tickers = DataLoadFromPath(config['data']['data_path'])
 
     input_size = config['input_size']
     hidden_layer_size = config['hidden_layer_size']
@@ -241,7 +241,7 @@ if __name__ == "__main__":
 
             # Scaling all data for the fold split. Turn them into tensors
             ticker_data = raw_stock_data[raw_stock_data.Ticker == ticker]
-            scaled_ticker_data, ticker_scaler = ScaleData(df=ticker_data, ticker=ticker, split_date=split_date, scaler=MinMaxScaler())
+            scaled_ticker_data, ticker_scaler = ScaleData(df=ticker_data, split_date=split_date, scaler=MinMaxScaler())
             fold_scalers[ticker] = ticker_scaler
             
             # sequencial dict of tensors with train- and test-features and -targets
