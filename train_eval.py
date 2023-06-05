@@ -131,20 +131,19 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
 
         tqdm.write("\nTraining reached end, consider increasing the number of epochs.") if epoch == num_epochs-1 else None
 
-
     # Save model hyperparameters
     with open(f'{save_dir}/model_params.json', 'w') as f:
-        json.dump({'input_size': input_size, 
-                'hidden_layer_size': hidden_layer_size, 
-                'num_layers': num_layers, 
-                'output_size': output_size, 
-                'dropout_rate': dropout_rate}, 
+        json.dump({'input_size': model.lstm.input_size, 
+                'hidden_layer_size': model.lstm.hidden_size, 
+                'num_layers': model.lstm.num_layers, 
+                'output_size': model.fc.out_features, 
+                'dropout_rate': model.lstm.dropout_rate}, 
                 f)
 
     # helper hyperparameters
     with open(f'{save_dir}/util_params.json', 'w') as f:
-        json.dump({'lr': lr, 
-                'patience': patience, 
+        json.dump({'lr': optimizer.param_groups[0]['lr'], 
+                'patience': scheduler.patience, 
                 'num_epochs': num_epochs}, 
                 f)
     
@@ -197,6 +196,7 @@ def OpenConfig(path):
         return config
 
 if __name__ == "__main__":
+    from datetime import datetime as dt
     
     conf_path = parser.parse_args().conf_path
     config = OpenConfig(f'configs/{conf_path}')
@@ -204,28 +204,21 @@ if __name__ == "__main__":
 
     raw_stock_data, stock_tickers = DataLoadFromPath(config['data']['data_path'])
 
-    input_size = config['input_size']
-    hidden_layer_size = config['hidden_layer_size']
-    num_layers = config['num_layers']
-    output_size = config['output_size']
-    dropout_rate = config['dropout_rate']
-    lr = config['lr']
-    patience = config['patience']
-    # Early stopping details
-    n_epochs_stop = config['n_epochs_stop']
-    min_val_loss = np.Inf
-    epochs_no_improve = 0
-    # Epochs
-    num_epochs = config['num_epochs']
+    # training variables
 
     scalers = {}
 
-    # init variables for use in the loop
-    fold_dates = config['date_splits'] # yaml detects datetime
+    # datesplitting for use in validation
+    fold_dates = [dt.strptime(d, '%Y-%m-%d') for d in config['data']['date_splits']]
     folds = range(len(fold_dates))
 
-    start_time = time.time()
+    # Early stopping initialization
+    min_val_loss = np.Inf
+    epochs_no_improve = 0
+    
+    num_epochs = config['train']['num_epochs']
 
+    start_time = time.time()
     # Training, evaluation and validation. Saving models and attributes to ticker folders
     for fold in folds:
         fold_time = time.time()
@@ -257,12 +250,11 @@ if __name__ == "__main__":
                                                                 output_size=config['train']['output_size'], 
                                                                 dropout_rate=config['train']['dropout_rate'], 
                                                                 lr=config['optim']['lr'],
-                                                                optim_type=config['optim']['type'], 
                                                                 patience=config['train']['patience'], 
                                                                 pytorch_device=pytorch_device, 
                                                                 scheduler=True)
                 
-            save_dir = f"experiments/{config['data']['exp_dir_out']}/fold{fold}/{ticker}"
+            save_dir = f"experiments/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
             
             # train tha model
             epoch_train_losses, epoch_val_losses, min_val_loss = train_model(model=model,
