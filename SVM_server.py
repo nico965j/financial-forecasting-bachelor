@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-import matplotlib.pyplot as plt
 import pickle
 from joblib import dump, load
 
@@ -64,7 +63,7 @@ print('Data Loaded:')
 # start_date = pd.to_datetime('2019-01-04') + bd
 
 # Split the DataFrame into training and test sets based on the specific date
-# for train we want all the data from the start date to the split date, this ensures that we have 62 days of data for each stock
+# for train we want all the data from the start date to the split date, this ensures that we have 63 days of data for each stock
 # for test we want all the data from the split date to the end of the dataset
 train = data_all_tickers.loc[(start_date < data_all_tickers.index) & (data_all_tickers.index < split_date)]
 train_log = train
@@ -76,9 +75,9 @@ test_log = test
 test_log['Low'] = np.log(test_log['Low'])
 test_log['High'] = np.log(test_log['High'])
 test_log['Open'] = np.log(test_log['Open'])
-X_train = train_log[['Ticker','Open', 'Low', 'High', 'Volume', 'Sector']]
+X_train = train_log[['Ticker','Open', 'Sector']] # 'Low', 'High', 'Volume', 
 y_train = train['Target']
-X_test = test_log[['Ticker', 'Open', 'Low', 'High', 'Volume', 'Sector']]
+X_test = test_log[['Ticker', 'Open', 'Sector']] # 'Low', 'High', 'Volume', 
 y_test = test['Target']
 print('Train and Test set created:')
 # Standardize the input features
@@ -87,7 +86,7 @@ X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
 
 # Train the SVM model
-model = SVC(kernel='rbf', probability=True) # linear, rbf, poly, sigmoid
+model = SVC(kernel='rbf', probability=False) # linear, rbf, poly, sigmoid
 model.fit(X_train, y_train)
 print('Model trained:')
 
