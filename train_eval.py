@@ -64,6 +64,8 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     os.makedirs(save_dir, exist_ok=True)
     epoch_val_losses = []
     epoch_train_losses = []
+    epoch_val_means = []
+    epoch_val_std = []
 
     pbar = tqdm(range(num_epochs), desc="Training", leave=True, unit='epochs')
     for epoch in pbar:
@@ -93,17 +95,33 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         train_loss = np.mean(train_losses)
         epoch_train_losses.append(train_loss)
         
-        
-        model.eval()
+
+        model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
+        n_samples = 100
         val_losses = []
+        val_predictions = np.zeros((n_samples, len(test_loader.dataset)))
         with torch.no_grad():
-            for X_val_batch, y_val_batch in test_loader:
-                val_outputs = model(X_val_batch.to(pytorch_device))
-                val_loss = criterion(val_outputs, y_val_batch.to(pytorch_device)).item()
-                val_losses.append(val_loss)
+            for pred in range(n_samples):
+                start_idx = 0
+                for X_val_batch, y_val_batch in test_loader:
+                    batch_outputs = model(X_val_batch.to(pytorch_device))
+                    batch_loss = criterion(batch_outputs, y_val_batch.to(pytorch_device)).item()
+                    val_losses.append(batch_loss)
+
+                    n_samples_per_batch = batch_outputs.shape[0]
+                    end_idx = start_idx + n_samples_per_batch
+
+                    val_predictions[pred, start_idx:end_idx] = batch_outputs.detach().cpu().numpy()
+                    start_idx = end_idx
+
         val_loss = np.mean(val_losses)
+        prediction_mean = val_predictions.mean(axis=0)
+        prediction_std = val_predictions.std(axis=0)
         epoch_val_losses.append(val_loss)
-        
+        epoch_val_means.append(prediction_mean.tolist())
+        epoch_val_std.append(prediction_std.tolist())
+
+
         pbar.set_postfix({'Train Loss': train_loss, 'Val Loss': val_loss, 'Min Val Loss': min_val_loss})
 
         ## Utilities (saving/progress/early stopping)
@@ -115,7 +133,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
                 tqdm.write('Saving model and optimizer state...') if verbose else None
                 torch.save(model.state_dict(), f'{save_dir}/model.pt')
                 torch.save(optimizer.state_dict(), f'{save_dir}/optimizer.pt')
-
+                
             epochs_no_improve = 0
             min_val_loss = val_loss
         else:
@@ -150,10 +168,12 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
     # Save the losses for the current ticker
     with open(f'{save_dir}/model_losses.json', 'w') as f:
         json.dump({'train_losses': epoch_train_losses, 
-                'val_losses': epoch_val_losses}, 
+                'val_losses': epoch_val_losses, 
+                'val_means': epoch_val_means,
+                'val_std': epoch_val_std},
                 f)
-
-    return epoch_train_losses, epoch_val_losses, min_val_loss
+        
+    return None
 
 
 ## Model initializer
@@ -257,18 +277,18 @@ if __name__ == "__main__":
             save_dir = f"experiments/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
             
             # train tha model
-            epoch_train_losses, epoch_val_losses, min_val_loss = train_model(model=model,
-                                                                            train_loader=train_loader, 
-                                                                            test_loader=test_loader,
-                                                                            criterion=criterion, 
-                                                                            optimizer=optimizer, 
-                                                                            scheduler=scheduler,
-                                                                            pytorch_device=pytorch_device,
-                                                                            num_epochs=config['train']['num_epochs'],
-                                                                            model_save=True,
-                                                                            save_dir=save_dir, 
-                                                                            verbose=True, 
-                                                                            early_stopping=True)
+            train_model(model=model,
+                        train_loader=train_loader, 
+                        test_loader=test_loader,
+                        criterion=criterion, 
+                        optimizer=optimizer, 
+                        scheduler=scheduler,
+                        pytorch_device=pytorch_device,
+                        num_epochs=config['train']['num_epochs'],
+                        model_save=True,
+                        save_dir=save_dir, 
+                        verbose=True, 
+                        early_stopping=True)
 
             tqdm.write(f"Finished training for {ticker} on fold {fold}. \nTime of training: {time.time() - ticker_time:.2f} seconds.\n")
         
