@@ -5,15 +5,13 @@ import time
 import os
 import argparse
 import yaml
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
-from tqdm import tqdm
-
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingWarmRestarts, CyclicLR, OneCycleLR
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 
 from preprocessing_utils import DF2Tensors, ScaleData, FetchDataLoader
@@ -23,10 +21,39 @@ parser = argparse.ArgumentParser()
 # parser.add_argument("--exp_dir", help="Full path to save best validation model")
 parser.add_argument("--conf_path", default="conf_base.yml", help="Name of configuration file (conf___.yml)")
 
+
+def DataLoadFromPath(path):
+    start_time = time.time()
+    tqdm.write("Data load...")
+
+    # load csv
+    raw_stock_data = pd.read_csv(path, index_col=0, parse_dates=True)
+    stock_tickers = pd.Series(raw_stock_data.Ticker.unique())
+
+    # change doubles/64 bit floats into 32bit floats
+    float_cols = list(raw_stock_data.select_dtypes(include=['float64', 'int64']))
+    raw_stock_data[float_cols] = raw_stock_data[float_cols].astype('float32')
+
+    end_time = time.time()
+    tqdm.write(f"Data load complete. Time elapsed: {end_time - start_time:.2f} seconds.")
+
+    return raw_stock_data, stock_tickers
+
+def AssertSeed(seed):
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+
+def OpenConfig(path):
+        with open(path, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+
+
 ##### MODEL
 ## Define model architecture
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, num_layers, output_size, dropout_rate):
+    def __init__(self, input_size, hidden_layer_size, num_layers, output_size, dropout_rate, MCD=False):
         super(LSTM, self).__init__()
         
         # Define the dimensions of the LSTM layer
@@ -34,7 +61,7 @@ class LSTM(nn.Module):
         self.num_layers = num_layers
         
         # Define the LSTM layer
-        self.lstm = nn.LSTM(input_size, hidden_layer_size, num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_layer_size, num_layers, batch_first=True, dropout=dropout_rate if MCD else 0)
         
         # dropout layer
         self.dropout = nn.Dropout(dropout_rate)
@@ -55,17 +82,19 @@ class LSTM(nn.Module):
 
         return pred.squeeze() # single dimension output
 
+def Unscale(databatches, scaler): 
+    return [scaler.inverse_transform(data.detach().cpu().numpy().reshape(-1,1)) for data in databatches]
 
 ## Setup trainer function
-def train_model(model, train_loader, test_loader, criterion, optimizer, scheduler, pytorch_device,
+def train_model(model, train_loader, test_loader, target_scaler, criterion, optimizer, scheduler, pytorch_device, clip_value,
                 num_epochs=50, n_epochs_stop=10, min_val_loss=np.Inf, epochs_no_improve=0, 
-                model_save=True, save_dir='', verbose=True, early_stopping=True):
+                model_save=True, save_dir='', verbose=True, early_stopping=True, MCD=False):
     
     os.makedirs(save_dir, exist_ok=True)
     epoch_val_losses = []
     epoch_train_losses = []
     epoch_val_means = []
-    epoch_val_std = []
+    epoch_val_stds = []
 
     pbar = tqdm(range(num_epochs), desc="Training", leave=True, unit='epochs')
     for epoch in pbar:
@@ -73,17 +102,22 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
 
         train_losses = []
         pbar_inner = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False, unit='batches')
-        for batch_X, batch_y in pbar_inner:
-            batch_X = batch_X.to(pytorch_device)
-            batch_y = batch_y.to(pytorch_device)
+        for X_batch, y_batch in pbar_inner:
+            X_batch = X_batch.to(pytorch_device)
+            y_batch = y_batch.to(pytorch_device)
 
             # forward propagation
-            outputs = model(batch_X)
-            loss = criterion(outputs, batch_y)
+            outputs = model(X_batch)
+            batch_unscaled = Unscale([outputs, y_batch], target_scaler)
+            loss = criterion(*batch_unscaled)
             
             # backward propagation
             optimizer.zero_grad()
             loss.backward()
+
+            # clipping for exploding gradients
+            if clip_value > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_value)
 
             # update weights
             optimizer.step()
@@ -97,15 +131,19 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         
 
         model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
-        n_samples = 100
+        n_samples = 50 if MCD else 1 # activates Monte-Carlo Dropout
         val_losses = []
         val_predictions = np.zeros((n_samples, len(test_loader.dataset)))
         with torch.no_grad():
             for pred in range(n_samples):
                 start_idx = 0
                 for X_val_batch, y_val_batch in test_loader:
+                    X_val_batch = X_val_batch.to(pytorch_device)
+                    y_val_batch = y_val_batch.to(pytorch_device)
+
                     batch_outputs = model(X_val_batch.to(pytorch_device))
-                    batch_loss = criterion(batch_outputs, y_val_batch.to(pytorch_device)).item()
+                    batch_unscaled = Unscale([batch_outputs, y_val_batch], target_scaler)
+                    batch_loss = criterion(*batch_unscaled)
                     val_losses.append(batch_loss)
 
                     n_samples_per_batch = batch_outputs.shape[0]
@@ -119,7 +157,7 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         prediction_std = val_predictions.std(axis=0)
         epoch_val_losses.append(val_loss)
         epoch_val_means.append(prediction_mean.tolist())
-        epoch_val_std.append(prediction_std.tolist())
+        epoch_val_stds.append(prediction_std.tolist())
 
 
         pbar.set_postfix({'Train Loss': train_loss, 'Val Loss': val_loss, 'Min Val Loss': min_val_loss})
@@ -170,62 +208,47 @@ def train_model(model, train_loader, test_loader, criterion, optimizer, schedule
         json.dump({'train_losses': epoch_train_losses, 
                 'val_losses': epoch_val_losses, 
                 'val_means': epoch_val_means,
-                'val_std': epoch_val_std},
+                'val_stds': epoch_val_stds},
                 f)
-        
     return None
 
 
 ## Model initializer
-def init_model(input_size, hidden_layer_size, num_layers, output_size, dropout_rate, lr, patience, pytorch_device, scheduler=True):
+def init_model(input_size, hidden_layer_size, num_layers, output_size, dropout_rate, lr, pytorch_device, iter_var, scheduler=''):
+    """
+    iter_var: controls the scheduler iteration interaction. E.g., for a step_lr, how many iterations before decreasing the learning rate.
+    """
+    
     # init model
     model = LSTM(input_size, hidden_layer_size, num_layers, output_size, dropout_rate)
     model.to(pytorch_device)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=patience) if scheduler else None
+    
+    if scheduler == 'ReduceLROnPlateau':
+        LRScheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=iter_var)
+    elif scheduler == 'CosineAnnealingWarmRestarts':
+        LRScheduler = CosineAnnealingWarmRestarts(optimizer, T_0=iter_var, T_mult=1, eta_min=0.00001)
+    elif scheduler == 'CyclicLR':
+        LRScheduler = CyclicLR(optimizer, base_lr=0.00001, max_lr=0.001, step_size_up=iter_var, mode='triangular2')
+    
+    # ? note: the scheduler has its factor changed to 0.5
+    # ? note: more schedulers for testing
 
-    return model, criterion, optimizer, scheduler
+    return model, criterion, optimizer, LRScheduler
 
-
-def DataLoadFromPath(path):
-    start_time = time.time()
-    tqdm.write("Data load...")
-
-    # load csv
-    raw_stock_data = pd.read_csv(path, index_col=0, parse_dates=True)
-    stock_tickers = pd.Series(raw_stock_data.Ticker.unique())
-
-    # change doubles/64 bit floats into 32bit floats
-    float_cols = list(raw_stock_data.select_dtypes(include=['float64', 'int64']))
-    raw_stock_data[float_cols] = raw_stock_data[float_cols].astype('float32')
-
-    end_time = time.time()
-    tqdm.write(f"Data load complete. Time elapsed: {end_time - start_time:.2f} seconds.")
-
-    return raw_stock_data, stock_tickers
-
-def AssertSeed(seed):
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-
-def OpenConfig(path):
-        with open(path, 'r') as f:
-            config = yaml.safe_load(f)
-        return config
 
 if __name__ == "__main__":
     from datetime import datetime as dt
     
     conf_path = parser.parse_args().conf_path
-    config = OpenConfig(f'configs/{conf_path}')
+    config = OpenConfig(conf_path)
     pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
 
     raw_stock_data, stock_tickers = DataLoadFromPath(config['data']['data_path'])
 
     # training variables
-
+    scaler = RobustScaler() if config['data']['scaler'] == 'robust' else MinMaxScaler(feature_range=(0, 1))
     scalers = {}
 
     # datesplitting for use in validation
@@ -253,9 +276,9 @@ if __name__ == "__main__":
             tqdm.write(f"Training model for {ticker} on fold {fold}.")
 
             # Scaling all data for the fold split. Turn them into tensors
-            ticker_data = raw_stock_data[raw_stock_data.Ticker == ticker]
-            scaled_ticker_data, ticker_scaler = ScaleData(df=ticker_data, split_date=split_date, scaler=MinMaxScaler())
-            fold_scalers[ticker] = ticker_scaler
+            ticker_data = raw_stock_data[raw_stock_data.Ticker == ticker] 
+            scaled_ticker_data, feature_scaler, target_scaler = ScaleData(df=ticker_data, split_date=split_date, scaler=scaler)
+            fold_scalers[ticker] = (feature_scaler, target_scaler)
             
             # sequencial dict of tensors with train- and test-features and -targets
             sequencial_tensors_dict = DF2Tensors(scaled_ticker_data.drop(columns=['Ticker', 'Sector']), split_date=split_date)
@@ -270,9 +293,9 @@ if __name__ == "__main__":
                                                                 output_size=config['train']['output_size'], 
                                                                 dropout_rate=config['train']['dropout_rate'], 
                                                                 lr=config['optim']['lr'],
-                                                                patience=config['train']['patience'], 
                                                                 pytorch_device=pytorch_device, 
-                                                                scheduler=True)
+                                                                iter_var=config['train']['iter_var'], 
+                                                                scheduler=config['train']['scheduler'])
                 
             save_dir = f"experiments/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
             
@@ -280,15 +303,19 @@ if __name__ == "__main__":
             train_model(model=model,
                         train_loader=train_loader, 
                         test_loader=test_loader,
+                        target_scaler=target_scaler,
                         criterion=criterion, 
                         optimizer=optimizer, 
                         scheduler=scheduler,
                         pytorch_device=pytorch_device,
+                        clip_value=config['train']['clip_value'],
                         num_epochs=config['train']['num_epochs'],
+                        n_epochs_stop=config['train']['n_epochs_stop'],
                         model_save=True,
                         save_dir=save_dir, 
                         verbose=True, 
-                        early_stopping=True)
+                        early_stopping=True,
+                        MCD=config['train']['MCD'],)
 
             tqdm.write(f"Finished training for {ticker} on fold {fold}. \nTime of training: {time.time() - ticker_time:.2f} seconds.\n")
         
