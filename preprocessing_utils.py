@@ -111,15 +111,21 @@ def ScaleData(df, split_date, scaler):
     ticker_rows_train = df.loc[df.index < split_date].copy()
     ticker_rows_test = df.loc[df.index >= split_date].copy()
 
-    numerical_columns = ticker_rows_train.drop(columns=['Ticker', 'Sector']).columns
+    feature_columns = ticker_rows_train.drop(columns=['Ticker', 'Sector', 'log_return_3m']).columns
+    target_columns = ['log_return_3m']
 
-    ticker_rows_train[numerical_columns] = scaler.fit_transform(ticker_rows_train[numerical_columns])
-    ticker_rows_test[numerical_columns] = scaler.transform(ticker_rows_test[numerical_columns])
+    ticker_rows_train[feature_columns] = scaler.fit_transform(ticker_rows_train[feature_columns])
+    ticker_rows_test[feature_columns] = scaler.transform(ticker_rows_test[feature_columns])
+    feature_scaler = scaler
+
+    ticker_rows_train[target_columns] = scaler.fit_transform(ticker_rows_train[target_columns])
+    ticker_rows_test[target_columns] = scaler.transform(ticker_rows_test[target_columns])
+    target_scaler = scaler
 
     # concatenate the scaled rows horizontally
     scaled_stock_data = pd.concat([ticker_rows_train, ticker_rows_test], axis=0)
 
-    return scaled_stock_data, scaler
+    return scaled_stock_data, feature_scaler, target_scaler
 
 
 # Dataset sctructure
