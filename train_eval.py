@@ -82,8 +82,14 @@ class LSTM(nn.Module):
 
         return pred.squeeze() # single dimension output
 
-def Unscale(databatches, scaler): 
-    return [scaler.inverse_transform(data.detach().cpu().numpy().reshape(-1,1)) for data in databatches]
+def Unscale(databatches, target_scaler): 
+    unscaled_batches = []
+    for data in databatches:
+        data_numpy = data.detach().cpu().numpy().reshape(-1, 1)
+        unscaled_data_numpy = target_scaler.inverse_transform(data_numpy)
+        unscaled_batches.append(torch.from_numpy(unscaled_data_numpy).to(data.device))
+    
+    return unscaled_batches
 
 ## Setup trainer function
 def train_model(model, train_loader, test_loader, target_scaler, criterion, optimizer, scheduler, pytorch_device, clip_value,
@@ -108,13 +114,12 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
 
             # forward propagation
             outputs = model(X_batch)
-            batch_unscaled = Unscale([outputs, y_batch], target_scaler)
-            loss = criterion(*batch_unscaled)
+            loss = criterion(outputs, y_batch)
+            loss.backward()
             
             # backward propagation
             optimizer.zero_grad()
-            loss.backward()
-
+            
             # clipping for exploding gradients
             if clip_value > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip_value)
@@ -122,8 +127,11 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
             # update weights
             optimizer.step()
 
-            # save losses
-            train_losses.append(loss.item())
+
+            # unscaling and saving losses
+            unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler)
+            unscaled_loss = criterion(unscaled_outputs, unscaled_y)
+            train_losses.append(unscaled_loss.item()) #?saving unscaled loss
 
         # calculate average losses
         train_loss = np.mean(train_losses)
@@ -142,9 +150,9 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                     y_val_batch = y_val_batch.to(pytorch_device)
 
                     batch_outputs = model(X_val_batch.to(pytorch_device))
-                    batch_unscaled = Unscale([batch_outputs, y_val_batch], target_scaler)
-                    batch_loss = criterion(*batch_unscaled)
-                    val_losses.append(batch_loss)
+                    unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler)
+                    batch_loss = criterion(unscaled_outputs, unscaled_y)
+                    val_losses.append(batch_loss) #?saving unscaled loss
 
                     n_samples_per_batch = batch_outputs.shape[0]
                     end_idx = start_idx + n_samples_per_batch
@@ -158,7 +166,6 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         epoch_val_losses.append(val_loss)
         epoch_val_means.append(prediction_mean.tolist())
         epoch_val_stds.append(prediction_std.tolist())
-
 
         pbar.set_postfix({'Train Loss': train_loss, 'Val Loss': val_loss, 'Min Val Loss': min_val_loss})
 
@@ -181,12 +188,13 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                 tqdm.write('Early stopping!')
                 break
         
-
         # step the scheduler
         scheduler.step(val_loss)
 
         tqdm.write("\nTraining reached end, consider increasing the number of epochs.") if epoch == num_epochs-1 else None
 
+    ### saving static model parameters
+    
     # Save model hyperparameters
     with open(f'{save_dir}/model_params.json', 'w') as f:
         json.dump({'input_size': model.lstm.input_size, 
@@ -197,11 +205,29 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                 f)
 
     # helper hyperparameters
+    scheduler_type = type(scheduler).__name__
+    if scheduler_type == 'ReduceLROnPlateau':
+        add_params = {'scheduler_type': scheduler_type,
+                    'patience': scheduler.patience,
+                    'factor': scheduler.factor,}
+    elif scheduler_type == 'CosineAnneaingWarmRestarts':
+        add_params = {'scheduler_type': scheduler_type,
+                    'T_0': scheduler.T_0,
+                    'T_mult': scheduler.T_mult,
+                    'eta_min': scheduler.eta_min}
+    elif scheduler_type == 'CycleLR':
+        add_params = {'scheduler_type': scheduler_type,
+                    'step_size_up': scheduler.step_size_up,
+                    'base_lr': scheduler.base_lr,
+                    'max_lr': scheduler.max_lr,
+                    'mode': scheduler.mode,
+                    'cycle_momentum': scheduler.cycle_momentum,}
+    
+    utils_dict = {'lr': optimizer.param_groups[0]['lr'], 'num_epochs': num_epochs}
+    utils_dict.update(add_params)
+
     with open(f'{save_dir}/util_params.json', 'w') as f:
-        json.dump({'lr': optimizer.param_groups[0]['lr'], 
-                'patience': scheduler.patience, 
-                'num_epochs': num_epochs}, 
-                f)
+        json.dump(utils_dict, f)
     
     # Save the losses for the current ticker
     with open(f'{save_dir}/model_losses.json', 'w') as f:
@@ -230,7 +256,7 @@ def init_model(input_size, hidden_layer_size, num_layers, output_size, dropout_r
     elif scheduler == 'CosineAnnealingWarmRestarts':
         LRScheduler = CosineAnnealingWarmRestarts(optimizer, T_0=iter_var, T_mult=1, eta_min=0.00001)
     elif scheduler == 'CyclicLR':
-        LRScheduler = CyclicLR(optimizer, base_lr=0.00001, max_lr=0.001, step_size_up=iter_var, mode='triangular2')
+        LRScheduler = CyclicLR(optimizer, base_lr=0.00001, max_lr=0.001, step_size_up=iter_var, mode='triangular2', cycle_momentum=False)
     
     # ? note: the scheduler has its factor changed to 0.5
     # ? note: more schedulers for testing
@@ -279,13 +305,16 @@ if __name__ == "__main__":
             ticker_data = raw_stock_data[raw_stock_data.Ticker == ticker] 
             scaled_ticker_data, feature_scaler, target_scaler = ScaleData(df=ticker_data, split_date=split_date, scaler=scaler)
             fold_scalers[ticker] = (feature_scaler, target_scaler)
+            print("Data scaled.")
             
             # sequencial dict of tensors with train- and test-features and -targets
             sequencial_tensors_dict = DF2Tensors(scaled_ticker_data.drop(columns=['Ticker', 'Sector']), split_date=split_date)
-            
+            print('Data turned into tensors.')
+
             train_loader, test_loader = FetchDataLoader(sequencial_tensors_dict, 
                                                         batch_size=config['train']['batch_size'], 
                                                         num_workers=0)
+            print('Data loaders ready.')
 
             model, criterion, optimizer, scheduler = init_model(input_size=config['train']['input_size'], 
                                                                 hidden_layer_size=config['train']['hidden_layer_size'], 
@@ -296,6 +325,7 @@ if __name__ == "__main__":
                                                                 pytorch_device=pytorch_device, 
                                                                 iter_var=config['train']['iter_var'], 
                                                                 scheduler=config['train']['scheduler'])
+            print('Model initialized.')
                 
             save_dir = f"experiments/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
             
