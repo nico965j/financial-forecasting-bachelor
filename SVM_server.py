@@ -24,7 +24,7 @@ initial_df = pd.read_csv('SP500_stock_prices.csv', delimiter=',')
 initial_df = initial_df.set_index('Date')
 
 # only display year, month and day in index
-initial_df.index = pd.to_datetime(initial_df.index).date
+initial_df.index = pd.to_datetime(initial_df.index)
 data = initial_df
 
 # make return column
@@ -59,10 +59,10 @@ data_all_tickers = pd.concat(indiviual_datas)
 # Define the specific date to split the DataFrame
 # Create an offset of 63 Business days
 bd = pd.tseries.offsets.BusinessDay(n = 63)
-split_date = pd.to_datetime('2019-09-30') - bd
+split_date = (pd.to_datetime('2019-09-30') - bd)
 
 # set a start date for the training set to be 63 days after the first date in the dataset
-start_date = pd.to_datetime('2016-01-04') + bd
+start_date = (pd.to_datetime('2016-01-04') + bd)
 
 # small test dataset creation:
 print('Data Loaded:')
@@ -98,11 +98,6 @@ X_test = scaler.transform(X_test)
 model = SVC(kernel='rbf', probability=True) # linear, rbf, poly, sigmoid
 model.fit(X_train, y_train)
 
-# Get the probabilities for each class
-y_pred_proba = model.predict_proba(X_test)
-
-# predicted probabilities for the positive class
-y_scores = model.predict_proba(X_test)[:, 1]
 print('Model trained:')
 # save model to file
 pickle.dump(model, open('svm_modelFullData.sav', 'wb'))
