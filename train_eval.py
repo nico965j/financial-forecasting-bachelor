@@ -19,7 +19,7 @@ tqdm.write("Modules loaded.")
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--exp_dir", help="Full path to save best validation model")
-parser.add_argument("--conf_path", default="conf_base.yml", help="Name of configuration file (conf___.yml)")
+parser.add_argument("--conf_path", default="configs/conf_base.yml", help="Path of configuration file (.../conf___.yml)")
 
 
 def DataLoadFromPath(path):
@@ -86,9 +86,8 @@ def Unscale(databatches, target_scaler):
     unscaled_batches = []
     for data in databatches:
         data_numpy = data.detach().cpu().numpy().reshape(-1, 1)
-        unscaled_data_numpy = target_scaler.inverse_transform(data_numpy)
+        unscaled_data_numpy = target_scaler.inverse_transform(data_numpy).squeeze()
         unscaled_batches.append(torch.from_numpy(unscaled_data_numpy).to(data.device))
-    
     return unscaled_batches
 
 ## Setup trainer function
@@ -127,15 +126,16 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
             # update weights
             optimizer.step()
 
-
             # unscaling and saving losses
-            unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler)
+            unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler) #TODO: problems with unscaling, doesnt work...
             unscaled_loss = criterion(unscaled_outputs, unscaled_y)
-            train_losses.append(unscaled_loss.item()) #?saving unscaled loss
+            print(f"unscaled: {unscaled_loss}, scaled: {loss}")
+
+            train_losses.append(loss.item()) # TODO: change to unscaled_loss when working...
 
         # calculate average losses
         train_loss = np.mean(train_losses)
-        epoch_train_losses.append(train_loss)
+        epoch_train_losses.append(train_loss.item()) # make it a python scalar
         
 
         model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
@@ -150,8 +150,9 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                     y_val_batch = y_val_batch.to(pytorch_device)
 
                     batch_outputs = model(X_val_batch.to(pytorch_device))
-                    unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler)
-                    batch_loss = criterion(unscaled_outputs, unscaled_y)
+                    # unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler)
+                    # batch_loss = criterion(unscaled_outputs, unscaled_y)
+                    batch_loss = criterion(batch_outputs, y_val_batch) #TODO: passing scaled loss for testing
                     val_losses.append(batch_loss) #?saving unscaled loss
 
                     n_samples_per_batch = batch_outputs.shape[0]
@@ -163,7 +164,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         val_loss = np.mean(val_losses)
         prediction_mean = val_predictions.mean(axis=0)
         prediction_std = val_predictions.std(axis=0)
-        epoch_val_losses.append(val_loss)
+        epoch_val_losses.append(val_loss.item()) # makes it a python scalar
         epoch_val_means.append(prediction_mean.tolist())
         epoch_val_stds.append(prediction_std.tolist())
 
@@ -193,8 +194,8 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
 
         tqdm.write("\nTraining reached end, consider increasing the number of epochs.") if epoch == num_epochs-1 else None
 
-    ### saving static model parameters
     
+    print(f"---~| Saving run attributes to {save_dir} |~---")
     # Save model hyperparameters
     with open(f'{save_dir}/model_params.json', 'w') as f:
         json.dump({'input_size': model.lstm.input_size, 
@@ -210,7 +211,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         add_params = {'scheduler_type': scheduler_type,
                     'patience': scheduler.patience,
                     'factor': scheduler.factor,}
-    elif scheduler_type == 'CosineAnneaingWarmRestarts':
+    elif scheduler_type == 'CosineAnnealingWarmRestarts':
         add_params = {'scheduler_type': scheduler_type,
                     'T_0': scheduler.T_0,
                     'T_mult': scheduler.T_mult,
@@ -228,7 +229,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
 
     with open(f'{save_dir}/util_params.json', 'w') as f:
         json.dump(utils_dict, f)
-    
+
     # Save the losses for the current ticker
     with open(f'{save_dir}/model_losses.json', 'w') as f:
         json.dump({'train_losses': epoch_train_losses, 

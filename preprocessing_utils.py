@@ -10,7 +10,7 @@ def ThreeMonthReturn(closing_price, lags=63, log=False):
     return closing_price.pct_change(lags) if log == False else closing_price.apply(lambda x: np.log(x + offset)).pct_change(lags)
 
 def n_lag_return(price, lags=63):
-    return price - price.shift(-lags)
+    return price - price.shift(lags) #look lags back, meaning the return that is subtracted is shifted lags forward...
 
 
 def CreateSequences(df, look_back=63, horizon=63, target_name='log_return_3m'):
