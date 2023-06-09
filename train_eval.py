@@ -216,7 +216,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                     'T_0': scheduler.T_0,
                     'T_mult': scheduler.T_mult,
                     'eta_min': scheduler.eta_min}
-    elif scheduler_type == 'CycleLR':
+    elif scheduler_type == 'CyclicLR':
         add_params = {'scheduler_type': scheduler_type,
                     'step_size_up': scheduler.step_size_up,
                     'base_lr': scheduler.base_lr,
@@ -230,13 +230,14 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
     with open(f'{save_dir}/util_params.json', 'w') as f:
         json.dump(utils_dict, f)
 
-    # Save the losses for the current ticker
-    with open(f'{save_dir}/model_losses.json', 'w') as f:
+    # Save losses and forecasts
+    with open(f'{save_dir}/model_results.json', 'w') as f:
         json.dump({'train_losses': epoch_train_losses, 
-                'val_losses': epoch_val_losses, 
-                'val_means': epoch_val_means,
-                'val_stds': epoch_val_stds},
-                f)
+                    'val_losses': epoch_val_losses,
+                    'val_means': epoch_val_means, # with MCD, this is mean of n forecasts, without MCD its just a single forecast
+                    'val_stds': epoch_val_stds}, # MCD: std, no MCD: 0
+                    f)    
+
     return None
 
 
