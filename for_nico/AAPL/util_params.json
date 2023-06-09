@@ -1,0 +1,1 @@
+{"lr": 0.0009989701490021434, "num_epochs": 50, "scheduler_type": "CosineAnnealingWarmRestarts", "T_0": 5, "T_mult": 1, "eta_min": 1e-05}
