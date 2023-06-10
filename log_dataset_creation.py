@@ -62,7 +62,7 @@ log_stock_data.to_csv(path)
 print(f'Dataframe saved to {path}.')
 
 ### save the stock tickers to csv
-stock_tickers = stock_tickers[~stock_tickers.isin(tickers_to_remove)]
+clean_stock_tickers = stock_tickers[~stock_tickers.isin(tickers_to_remove)]
 path = 'data/SP500_tickers_clean.csv'
-stock_tickers.to_csv(path)
+clean_stock_tickers.to_csv(path)
 print(f'Suitable tickers saved to {path}.')
