@@ -218,7 +218,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                     'eta_min': scheduler.eta_min}
     elif scheduler_type == 'CyclicLR':
         add_params = {'scheduler_type': scheduler_type,
-                    'step_size_up': scheduler.step_size_up,
+                    'step_size_up': scheduler.total_size * scheduler.step_ratio,
                     'base_lr': scheduler.base_lr,
                     'max_lr': scheduler.max_lr,
                     'mode': scheduler.mode,
