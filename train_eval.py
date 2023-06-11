@@ -129,7 +129,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
             # unscaling and saving losses
             unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler) #TODO: problems with unscaling, doesnt work...
             unscaled_loss = criterion(unscaled_outputs, unscaled_y)
-            print(f"unscaled: {unscaled_loss}, scaled: {loss}")
+            # print(f"unscaled: {unscaled_loss}, scaled: {loss}")
 
             train_losses.append(loss.item()) # TODO: change to unscaled_loss when working...
 
@@ -219,8 +219,8 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
     elif scheduler_type == 'CyclicLR':
         add_params = {'scheduler_type': scheduler_type,
                     'step_size_up': scheduler.total_size * scheduler.step_ratio,
-                    'base_lr': scheduler.base_lr,
-                    'max_lr': scheduler.max_lr,
+                    'base_lr': scheduler.base_lrs[0],
+                    'max_lr': scheduler.max_lrs[0],
                     'mode': scheduler.mode,
                     'cycle_momentum': scheduler.cycle_momentum,}
     
