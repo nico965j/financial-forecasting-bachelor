@@ -10,10 +10,10 @@ print('Data loaded')
 
 # filter our ticker_alt_names_raw to only include tickers in sp500_tickers_clean
 
-alt_names_filtered = alt_names[alt_names.ticker.isin(tickers_clean.ticker)].copy()
+alt_names_filtered = alt_names[alt_names['0'].isin(tickers_clean.ticker)].copy()
 
 # stats about number of removed tickers
 print('Number of tickers removed: ', len(alt_names) - len(alt_names_filtered))
 
 # save to csv
-alt_names_filtered.to_csv('data/ticker_alt_names_filtered.csv', index=False)
+alt_names_filtered.to_csv('data/tickers_alt_names_filtered.csv', index=False)
