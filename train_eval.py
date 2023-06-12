@@ -95,6 +95,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                 num_epochs=50, n_epochs_stop=10, min_val_loss=np.Inf, epochs_no_improve=0, 
                 model_save=True, save_dir='', verbose=True, early_stopping=True, MCD=False):
     
+    scheduler_type = type(scheduler).__name__
     os.makedirs(save_dir, exist_ok=True)
     epoch_val_losses = []
     epoch_train_losses = []
@@ -141,7 +142,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
         n_samples = 50 if MCD else 1 # activates Monte-Carlo Dropout
         val_losses = []
-        val_predictions = np.zeros((n_samples, len(test_loader.dataset)))
+        val_preds = np.zeros(len((n_samples, test_loader.dataset)))
         with torch.no_grad():
             for pred in range(n_samples):
                 start_idx = 0
@@ -158,14 +159,15 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                     n_samples_per_batch = batch_outputs.shape[0]
                     end_idx = start_idx + n_samples_per_batch
 
-                    val_predictions[pred, start_idx:end_idx] = batch_outputs.detach().cpu().numpy()
+                    val_preds[pred, start_idx:end_idx] = batch_outputs.detach().cpu().numpy()
                     start_idx = end_idx
-
+                    print(val_preds)
+                
         val_loss = np.mean(val_losses)
-        prediction_mean = val_predictions.mean(axis=0)
-        prediction_std = val_predictions.std(axis=0)
+        prediction_mean = val_preds.mean(axis=0)
+        prediction_std = val_preds.std(axis=0)
         epoch_val_losses.append(val_loss.item()) # makes it a python scalar
-        epoch_val_means.append(prediction_mean.tolist())
+        epoch_val_means.append(prediction_mean.tolist()) # append all test set predictions for each epoch.
         epoch_val_stds.append(prediction_std.tolist())
 
         pbar.set_postfix({'Train Loss': train_loss, 'Val Loss': val_loss, 'Min Val Loss': min_val_loss})
@@ -190,7 +192,9 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                 break
         
         # step the scheduler
-        scheduler.step(val_loss)
+        param = val_loss if scheduler_type == 'ReduceLROnPlateau' else None
+        # we dont need to feed in epoch for other schedulers, but val_loss is needed for ReduceLROnPlateau
+        scheduler.step(param)
 
         tqdm.write("\nTraining reached end, consider increasing the number of epochs.") if epoch == num_epochs-1 else None
 
@@ -206,7 +210,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
                 f)
 
     # helper hyperparameters
-    scheduler_type = type(scheduler).__name__
+    
     if scheduler_type == 'ReduceLROnPlateau':
         add_params = {'scheduler_type': scheduler_type,
                     'patience': scheduler.patience,
