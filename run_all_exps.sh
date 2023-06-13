@@ -8,5 +8,4 @@ for script in training_shell_scripts/*; do
             echo "skipping directory"
         fi
             bsub < $script
-
 done
