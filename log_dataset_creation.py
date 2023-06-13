@@ -58,11 +58,11 @@ log_stock_data.dtypes
 
 ### save the dataframe to csv
 path = 'data/SP500_stock_prices_log_clean_3monthreturn.csv'
-log_stock_data.to_csv(path)
+log_stock_data.to_csv(path) # keep date index
 print(f'Dataframe saved to {path}.')
 
 ### save the stock tickers to csv
 clean_stock_tickers = stock_tickers[~stock_tickers.isin(tickers_to_remove)]
 path = 'data/SP500_tickers_clean.csv'
-clean_stock_tickers.to_csv(path)
+clean_stock_tickers.to_csv(path, index=False) # no important index
 print(f'Suitable tickers saved to {path}.')

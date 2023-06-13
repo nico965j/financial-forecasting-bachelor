@@ -19,7 +19,7 @@ tqdm.write("Modules loaded.")
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--exp_dir", help="Full path to save best validation model")
-parser.add_argument("--conf_path", default="configs/conf_base.yml", help="Path of configuration file (.../conf___.yml)")
+parser.add_argument("--conf_path", default="configs/Cycl/conf_1dh.yml", help="Path of configuration file (.../conf___.yml)")
 
 
 def DataLoadFromPath(path):
@@ -128,9 +128,8 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
             optimizer.step()
 
             # unscaling and saving losses
-            unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler) #TODO: problems with unscaling, doesnt work...
-            unscaled_loss = criterion(unscaled_outputs, unscaled_y)
-            # print(f"unscaled: {unscaled_loss}, scaled: {loss}")
+            # unscaled_outputs, unscaled_y = Unscale([outputs, y_batch], target_scaler) #TODO: problems with unscaling, doesnt work...
+            # unscaled_loss = criterion(unscaled_outputs, unscaled_y)
 
             train_losses.append(loss.item()) # TODO: change to unscaled_loss when working...
 
@@ -142,7 +141,7 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
         n_samples = 50 if MCD else 1 # activates Monte-Carlo Dropout
         val_losses = []
-        val_preds = np.zeros(len((n_samples, test_loader.dataset)))
+        val_preds = np.zeros((n_samples, len(test_loader.dataset)))
         with torch.no_grad():
             for pred in range(n_samples):
                 start_idx = 0
@@ -161,7 +160,6 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
 
                     val_preds[pred, start_idx:end_idx] = batch_outputs.detach().cpu().numpy()
                     start_idx = end_idx
-                    print(val_preds)
                 
         val_loss = np.mean(val_losses)
         prediction_mean = val_preds.mean(axis=0)
@@ -322,7 +320,8 @@ if __name__ == "__main__":
                                                         num_workers=0)
             print('Data loaders ready.')
 
-            model, criterion, optimizer, scheduler = init_model(input_size=config['train']['input_size'], 
+            input_size = train_loader.dataset.X.shape[2] # calls for number of features.
+            model, criterion, optimizer, scheduler = init_model(input_size=input_size, 
                                                                 hidden_layer_size=config['train']['hidden_layer_size'], 
                                                                 num_layers=config['train']['num_layers'], 
                                                                 output_size=config['train']['output_size'], 
