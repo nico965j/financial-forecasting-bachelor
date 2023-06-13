@@ -1,0 +1,27 @@
+train:
+  num_layers: 2
+  dropout_rate: 0.4
+  hidden_layer_size: 16
+  scheduler: 'ReduceLROnPlateau'
+  clip_value: 1
+  iter_var: 3
+  batch_size: 8
+  output_size: 1
+  num_epochs: 100
+  n_epochs_stop: 5
+  MCD: 25
+
+optim:
+  lr: 0.001
+
+data:
+  exp_output_dir: "exp_plat_2dH"
+  scaler: minmaxscaler
+  data_path: data/SP500_stock_prices_log_clean_3monthreturn.csv
+  date_splits:
+    - '2018-10-01'
+    - '2019-01-01'
+    - '2019-04-01'
+    - '2019-07-01'
+    - '2019-10-01'
+  use_sentiment: false
