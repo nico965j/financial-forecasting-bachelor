@@ -12,6 +12,8 @@ def ThreeMonthReturn(closing_price, lags=63, log=False):
 def n_lag_return(price, lags=63):
     return price - price.shift(lags) #look lags back, meaning the return that is subtracted is shifted lags forward...
 
+def LogReturn2SimpleReturn(log_return):
+    return np.exp(log_return) - 1
 
 def CreateSequences(df, look_back=63, horizon=63, target_name='log_return_3m'):
     """
@@ -143,11 +145,24 @@ class TimeSeriesDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
+# def FetchDataLoader(ticker_sequences_dict, batch_size=16, num_workers=0):
+#     # Initialize the datasets
+#     train_dataset = TimeSeriesDataset(ticker_sequences_dict['train_features'], ticker_sequences_dict['train_targets'])
+#     # val_dataset = TimeSeriesDataset(ticker_sequences_dict['val_features'], ticker_sequences_dict['val_targets'])
+#     test_dataset = TimeSeriesDataset(ticker_sequences_dict['test_features'], ticker_sequences_dict['test_targets'])
+
+#     # Initialize the dataloaders
+#     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+#     # val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+#     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+
+#     return train_dataloader, test_dataloader
+
 def FetchDataLoader(ticker_sequences_dict, batch_size=16, num_workers=0):
     # Initialize the datasets
-    train_dataset = TimeSeriesDataset(ticker_sequences_dict['train_features'], ticker_sequences_dict['train_targets'])
-    # val_dataset = TimeSeriesDataset(ticker_sequences_dict['val_features'], ticker_sequences_dict['val_targets'])
-    test_dataset = TimeSeriesDataset(ticker_sequences_dict['test_features'], ticker_sequences_dict['test_targets'])
+    train_dataset = TensorDataset(ticker_sequences_dict['train_features'], ticker_sequences_dict['train_targets'])
+    # val_dataset = TensorDataset(ticker_sequences_dict['val_features'], ticker_sequences_dict['val_targets'])
+    test_dataset = TensorDataset(ticker_sequences_dict['test_features'], ticker_sequences_dict['test_targets'])
 
     # Initialize the dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
