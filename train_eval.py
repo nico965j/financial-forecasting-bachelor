@@ -320,7 +320,8 @@ if __name__ == "__main__":
                                                         num_workers=0)
             print('Data loaders ready.')
 
-            input_size = train_loader.dataset.X.shape[2] # calls for number of features.
+            input_size = train_loader.dataset.tensors[0].shape[2] # calls for number of features.
+            # 
             model, criterion, optimizer, scheduler = init_model(input_size=input_size, 
                                                                 hidden_layer_size=config['train']['hidden_layer_size'], 
                                                                 num_layers=config['train']['num_layers'], 
