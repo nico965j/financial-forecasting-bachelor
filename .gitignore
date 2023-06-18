@@ -1,7 +1,6 @@
 venv/
 .venv
 experiments/
-old_experiments/
 *.pyc
 settings.json
 .vscode

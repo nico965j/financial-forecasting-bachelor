@@ -18,8 +18,9 @@ from preprocessing_utils import DF2Tensors, ScaleData, FetchDataLoader
 tqdm.write("Modules loaded.")
 
 parser = argparse.ArgumentParser()
-# parser.add_argument("--exp_dir", help="Full path to save best validation model")
+parser.add_argument("--exp_dir", default="experiments", help="top-layer directory to save experiment results, e.g. 'experiments' ")
 parser.add_argument("--conf_path", default="configs/Cycl/conf_1dh.yml", help="Path of configuration file (.../conf___.yml)")
+parser.add_argument("--data_dir", default="data/SP500_stock_prices_log_clean_3monthreturn.csv", help="path to pandas dataframe to be used")
 
 
 def DataLoadFromPath(path):
@@ -272,10 +273,13 @@ if __name__ == "__main__":
     from datetime import datetime as dt
     
     conf_path = parser.parse_args().conf_path
+    data_dir = parser.parse_args().data_dir
+    exp_dir = parser.parse_args().exp_dir
+
     config = OpenConfig(conf_path)
     pytorch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
 
-    raw_stock_data, stock_tickers = DataLoadFromPath(config['data']['data_path'])
+    raw_stock_data, stock_tickers = DataLoadFromPath(data_dir)
 
     # training variables
     scaler = RobustScaler() if config['data']['scaler'] == 'robust' else MinMaxScaler(feature_range=(0, 1))
@@ -333,7 +337,7 @@ if __name__ == "__main__":
                                                                 scheduler=config['train']['scheduler'])
             print('Model initialized.')
                 
-            save_dir = f"experiments/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
+            save_dir = f"{exp_dir}/{config['data']['exp_output_dir']}/fold{fold}/{ticker}"
             
             # train tha model
             train_model(model=model,
