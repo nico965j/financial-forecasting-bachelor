@@ -19,7 +19,7 @@ tqdm.write("Modules loaded.")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="experiments", help="top-layer directory to save experiment results, e.g. 'experiments' ")
-parser.add_argument("--conf_path", default="configs/Cycl/conf_1dh.yml", help="Path of configuration file (.../conf___.yml)")
+parser.add_argument("--conf_path", default="configs/Plat/conf_1dH.yml", help="Path of configuration file (.../conf___.yml)")
 parser.add_argument("--data_dir", default="data/SP500_stock_prices_log_clean_3monthreturn.csv", help="path to pandas dataframe to be used")
 
 
@@ -137,10 +137,11 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
         # calculate average losses
         train_loss = np.mean(train_losses)
         epoch_train_losses.append(train_loss.item()) # make it a python scalar
+        print(f"Train losses so far: {epoch_train_losses}")
         
 
         model.train() # NOT .eval() because we want to keep dropout on for MC Dropout sampling
-        n_samples = 50 if MCD else 1 # activates Monte-Carlo Dropout
+        n_samples = MCD if MCD>1 else 1 # activates Monte-Carlo Dropout
         val_losses = []
         val_preds = np.zeros((n_samples, len(test_loader.dataset)))
         with torch.no_grad():
@@ -297,7 +298,7 @@ if __name__ == "__main__":
 
     start_time = time.time()
     # Training, evaluation and validation. Saving models and attributes to ticker folders
-    for fold in folds:
+    for fold in folds[4:]: #! TODO: remove [4:] when done testing
         fold_time = time.time()
 
         fold_scalers = {}
