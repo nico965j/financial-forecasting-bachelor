@@ -116,10 +116,10 @@ def train_model(model, train_loader, test_loader, target_scaler, criterion, opti
             # forward propagation
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
-            loss.backward()
             
             # backward propagation
             optimizer.zero_grad()
+            loss.backward()
             
             # clipping for exploding gradients
             if clip_value > 0:
