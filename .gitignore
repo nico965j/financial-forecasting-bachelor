@@ -1,2 +1,12 @@
 venv/
 .venv
+experiments/
+experiments_sentiment
+experiments_sentiment/
+*.pyc
+settings.json
+.vscode
+outputs/
+errors/
+*.out
+*.err
