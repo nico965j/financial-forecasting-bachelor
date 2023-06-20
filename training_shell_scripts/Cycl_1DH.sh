@@ -18,4 +18,4 @@ pwd
 source act-venv.sh
 
 ### Write which script to run below
-python3 train_eval.py --conf_path configs/Cycl/conf_1DH.yml
+python3 train_eval.py --conf_path configs/Cycl/conf_1DH.yml --data_dir ${data_dir} --exp_dir ${exp_dir}
